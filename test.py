@@ -1,7 +1,7 @@
 import threading
 from paddleocr import PaddleOCR
 import time
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk, ImageDraw, ImageGrab
 import tkinter, win32api, win32con, pywintypes
 import imagesize
 import pyWinhook
@@ -12,21 +12,21 @@ next_img = 0
 coordinate = [1, 1, 1, 1]
 def output():
     global next_img 
-    t = time.time()
-    res = ocr.ocr('./example/images/test2.png', cls=True)
+    #t = time.time()
+    #res = ocr.ocr('./example/images/test2.png', cls=True)
     #print(res)
-    print(time.time()-t)
+    #print(time.time()-t)
 
 
     root = tkinter.Tk()
 
-    width, height = imagesize.get('./example/images/test2.png')
-    img = Image.new('RGBA', (width, height), (255, 0, 0, 0))
+    #width, height = imagesize.get('./example/images/test2.png')
+    img = Image.new('RGBA', (100, 100), (255, 0, 0, 0))
 
-    draw = ImageDraw.Draw(img)
-    for i in res:
-        print(i[0][0])
-        draw.text((i[0][0][0], i[0][0][1]), i[1][0], fill=(255, 0, 0))
+    #draw = ImageDraw.Draw(img)
+    #for i in res:
+    #    print(i[0][0])
+    #    draw.text((i[0][0][0], i[0][0][1]), i[1][0], fill=(255, 0, 0))
 
     test = ImageTk.PhotoImage(img)
     label = tkinter.Label(image=test, bg='white')#text='Text on the screen', font=('Times New Roman','80'), fg='black', bg='white')
@@ -45,22 +45,30 @@ def output():
 
     label.pack()
     print('-')
-    r = 0
-    def handle(event):
-        print('---')
-    label.bind('<Tab>', handle)
+
     while True:
         #label.update()
         #time.sleep(1)
         
-        if next_img:
+        if next_img:# and (coordinate[0]-coordinate[2]) > 4 and (coordinate[1]-coordinate[3]) > 4:
             print('--')
-            width, height = imagesize.get('./example/images/test2.png')
-            img3 = Image.new('RGBA', (width, height), (255, 0, 0, 0))
-
+            label.configure(image=test)
+            label.update()
+            time.sleep(0.5)
+            width, height = coordinate[0], coordinate[1]
+            label.master.geometry("+"+str(width)+"+" +str(height))
+            pic1 = ImageGrab.grab(coordinate)
+            pic = pic1.resize((pic1.width//2, pic1.height//2))
+            pic.save('temp.png', 'PNG')
+            res = ocr.ocr('temp.png', cls=True)
+            print(res)
+            img3 = Image.new('RGBA', (pic1.width, pic1.height), (255, 0, 0, 0))
             draw = ImageDraw.Draw(img3)
-            
-            draw.text((10,10), str(coordinate), fill=(255, 0, 0))
+            for i in res:
+            #    print(i[0][0])
+                draw.rectangle((i[0][0][0]*2, i[0][0][1]*2, i[0][2][0]*2, i[0][2][1]*2), fill="grey")
+                draw.text((i[0][0][0]*2, i[0][0][1]*2), i[1][0], fill=(255, 0, 0))
+            #draw.text((10,10), str(coordinate), fill=(255, 0, 0))
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
             next_img=0
