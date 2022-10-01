@@ -9,12 +9,13 @@ import pythoncom
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 import pyperclip
+import requests
 
-ocr = PaddleOCR(use_angle_cls=True, lang='en')
+
 a = 0
 next_img = 0
 coordinate = [1, 1, 1, 1]
-
+clear_img=0
 chrome_options = webdriver.ChromeOptions()
 #chrome_options.add_argument('user-data-dir=C:\\Users\\dimon\\AppData\\Local\\Google\\Chrome\\User Data')
 browser = webdriver.Chrome(chrome_options=chrome_options) 
@@ -88,9 +89,9 @@ def deeptr(text):
             return res.split('~')#replace('~', '')
         print(res.count('~'))
         print(c)
-def output(scale=1, fontsize = 15):
+def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
     global next_img 
-
+    global clear_img
     root = tkinter.Tk()
     img = Image.new('RGBA', (100, 100), (255, 0, 0, 0))
     test = ImageTk.PhotoImage(img)
@@ -109,18 +110,41 @@ def output(scale=1, fontsize = 15):
     win32api.SetWindowLong(hWindow, win32con.GWL_EXSTYLE, exStyle)
 
     label.pack()
-
+    if server_mode is False:
+        ocr = PaddleOCR(use_angle_cls=True, lang='en')
     while True:
+        if clear_img:
+            print('clear')
+            label.configure(image=test)
+            label.update()
+            clear_img=0
         if next_img:
+            
             label.configure(image=test)
             label.update()
             time.sleep(0.5)
             width, height = coordinate[0], coordinate[1]
             label.master.geometry("+"+str(width)+"+" +str(height))
+            t = time.time()
             pic1 = ImageGrab.grab(coordinate)
+            print('time 1=',time.time()-t)
+            t1 = time.time()
             pic = pic1.resize((pic1.width//scale, pic1.height//scale))
+            print('time 2=',time.time()-t1)
+            
             pic.save('temp.png', 'PNG')
-            res = ocr.ocr('temp.png', cls=True)
+            print('time 3=',time.time()-t1)
+            t2 = time.time()
+            if server_mode:
+                url = 'http://b55c-34-80-79-3.ngrok.io/img'
+                files={'file':open('temp.png','rb')}
+                r = requests.post(url, files=files)
+                res = r.json()['res']
+                
+            else:
+                res = ocr.ocr('temp.png', cls=True)
+            print('time 4=',time.time()-t2)
+            t3 = time.time()
             print(res)
             img3 = Image.new('RGBA', (pic1.width, pic1.height), (255, 0, 0, 0))
             draw = ImageDraw.Draw(img3)
@@ -141,7 +165,11 @@ def output(scale=1, fontsize = 15):
             tran_str = ''
             for r in texts_copied:
                 tran_str +=r + ' ~ '
+            print('time 5=',time.time()-t3)
+            t4 = time.time()
             tr_res = deeptr(tran_str)
+            print('time 6=',time.time()-t4)
+            t5 = time.time()
             while len(tr_res) < len(texts_copied):
                 tr_res.append('')
             #print(tr_res)
@@ -167,24 +195,28 @@ def output(scale=1, fontsize = 15):
                     sq = ((y1-y0)*(x1-x0))/len(i)
                     fs = int((sq/0.8)**(1/2))-1
                     font = ImageFont.truetype('arial.ttf', fs)
-                    len_t = (x1-x0)/(fs*0.7)
+                    len_t = (x1-x0)/(fs*0.5)
                     texts = re.findall('(.{%s}|.+$)'%int(len_t), i)
                     draw.rectangle(tuple(texts_boxes_copied[c]), fill="grey")
                     add = 0
                     for te in texts:
-                        draw.text((x0+fs/4, y0+add+fs/4), te, fill=(0, 0, 0), font = font )
+                        draw.text((x0+padding_scale*fs/4, y0+add+padding_scale*fs/4), te, fill=(0, 0, 0), font = font )
                         add+=fs
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
             next_img=0
+            print('time 7=',time.time()-t5)
         label.update()
 def change(e):
     global a
     global next_img
+    global clear_img
     if e.Key == 'Lcontrol':
         a =1
     elif e.Key == 'P':
         next_img =1
+    elif e.Key == 'Return':
+        clear_img=1
     else:
         print(e.Key)
     return 1
@@ -210,3 +242,4 @@ if __name__ == '__main__':
     thread2 = threading.Thread(target=output)
     thread1.start()
     thread2.start()
+    
