@@ -77,19 +77,19 @@ def deeptr(text):
     br.clear()
     pyperclip.copy(text)
     br.send_keys(Keys.CONTROL + "v")
-    c = text.count('~')
+    c = text.count('\n')
     count = 0
     while True:
 
         time.sleep(0.1)
         b = browser.find_element('id', 'target-dummydiv')
         res = b.get_attribute('innerHTML')
-        if res.count('~') >= c:
+        if res.count('\n') >= c:
             pyperclip.copy(text)
-            return res.split('~')#replace('~', '')
-        print(res.count('~'))
+            return res.split('\n')#replace('\n', '')
+        print(res.count('\n'))
         print(c)
-def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
+def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0):
     global next_img 
     global clear_img
     root = tkinter.Tk()
@@ -97,7 +97,7 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
     test = ImageTk.PhotoImage(img)
     label = tkinter.Label(image=test, bg='white')
     label.master.overrideredirect(True)
-    label.master.geometry("+250+250")
+    #label.master.geometry("+250+250")
     label.master.lift()
     label.master.wm_attributes("-topmost", True)
     label.master.wm_attributes("-disabled", True)
@@ -111,7 +111,7 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
 
     label.pack()
     if server_mode is False:
-        ocr = PaddleOCR(use_angle_cls=True, lang='en')
+        ocr = PaddleOCR(use_angle_cls=True, lang='en', gpu_enable=True, gpu_mem=4000)
     while True:
         if clear_img:
             print('clear')
@@ -124,7 +124,7 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
             label.update()
             time.sleep(0.5)
             width, height = coordinate[0], coordinate[1]
-            label.master.geometry("+"+str(width)+"+" +str(height))
+            label.master.geometry("+"+str(int(width/2))+"+" +str(int(height/2)))
             t = time.time()
             pic1 = ImageGrab.grab(coordinate)
             print('time 1=',time.time()-t)
@@ -136,7 +136,7 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
             print('time 3=',time.time()-t1)
             t2 = time.time()
             if server_mode:
-                url = 'http://b55c-34-80-79-3.ngrok.io/img'
+                url = 'http://9727-34-66-21-36.ngrok.io/img'
                 files={'file':open('temp.png','rb')}
                 r = requests.post(url, files=files)
                 res = r.json()['res']
@@ -146,7 +146,8 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
             print('time 4=',time.time()-t2)
             t3 = time.time()
             print(res)
-            img3 = Image.new('RGBA', (pic1.width, pic1.height), (255, 0, 0, 0))
+            print(len(res))
+            img3 = Image.new('RGBA', (pic.width, pic.height), (255, 0, 0, 0))
             draw = ImageDraw.Draw(img3)
             font = ImageFont.truetype('arial.ttf', fontsize)
             
@@ -154,6 +155,10 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
             texts_boxes_copied = []
             for c, i in enumerate(res):
                 texts_copied.append(i[1][0])
+                print('+++++++++++++')
+                print(i[1][0])
+                print('+++++++++++++')
+                print(i[0][0])
                 texts_boxes_copied.append([i[0][0][0], i[0][0][1], i[0][2][0], i[0][2][1]])
             need_to_merge = True
             print(texts_copied)
@@ -164,7 +169,7 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
             print(len(texts_boxes_copied))
             tran_str = ''
             for r in texts_copied:
-                tran_str +=r + ' ~ '
+                tran_str +=r + ' \n '
             print('time 5=',time.time()-t3)
             t4 = time.time()
             tr_res = deeptr(tran_str)
@@ -195,18 +200,21 @@ def output(scale=1, fontsize = 15, server_mode=True, padding_scale=0):
                     sq = ((y1-y0)*(x1-x0))/len(i)
                     fs = int((sq/0.8)**(1/2))-1
                     font = ImageFont.truetype('arial.ttf', fs)
-                    len_t = (x1-x0)/(fs*0.5)
+                    len_t = (x1-x0)/(fs*0.65)
                     texts = re.findall('(.{%s}|.+$)'%int(len_t), i)
                     draw.rectangle(tuple(texts_boxes_copied[c]), fill="grey")
                     add = 0
                     for te in texts:
                         draw.text((x0+padding_scale*fs/4, y0+add+padding_scale*fs/4), te, fill=(0, 0, 0), font = font )
                         add+=fs
+            print(img3)
+            img3=img3.resize((int(img3.width/2), int(img3.height/2)))
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
             next_img=0
             print('time 7=',time.time()-t5)
         label.update()
+import sys
 def change(e):
     global a
     global next_img
@@ -215,6 +223,8 @@ def change(e):
         a =1
     elif e.Key == 'P':
         next_img =1
+    elif e.Key=='C':
+        sys.exit('--')
     elif e.Key == 'Return':
         clear_img=1
     else:
