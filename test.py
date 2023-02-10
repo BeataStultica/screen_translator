@@ -10,7 +10,7 @@ from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 import pyperclip
 import requests
-
+from translate import Translator
 
 a = 0
 next_img = 0
@@ -21,7 +21,7 @@ chrome_options = webdriver.ChromeOptions()
 browser = webdriver.Chrome(chrome_options=chrome_options) 
 browser.get('https://www.deepl.com/translator#en/ru/')
 
-dist_limit = 30
+dist_limit = 100
 
 
 #Generate two text boxes a larger one that covers them
@@ -42,9 +42,10 @@ def calc_sim(text, obj):
 
     x_dist = min(abs(text_xmin-obj_xmin), abs(text_xmin-obj_xmax), abs(text_xmax-obj_xmin), abs(text_xmax-obj_xmax))
     y_dist = min(abs(text_ymin-obj_ymin), abs(text_ymin-obj_ymax), abs(text_ymax-obj_ymin), abs(text_ymax-obj_ymax))
-
+    y_abs = abs((text_xmin+text_xmax)/2 -(obj_xmin+obj_xmax)/2) > max(abs(text_xmax-text_xmin)/2, abs(obj_xmax-obj_xmin)/2) 
+    #print('Center_x dist ',y_abs)
     dist = x_dist + y_dist
-    return dist
+    return dist#x_dist, y_dist, y_abs
 
 #Principal algorithm for merge text 
 def merge_algo(texts, texts_boxes):
@@ -53,6 +54,7 @@ def merge_algo(texts, texts_boxes):
             if j <= i:
                 continue
             # Create a new box if a distances is less than disctance limit defined 
+            #if calc_sim(text_box_1, text_box_2)[0]+calc_sim(text_box_1, text_box_2)[1] < dist_limit and calc_sim(text_box_1, text_box_2)[2]:
             if calc_sim(text_box_1, text_box_2) < dist_limit:
             # Create a new box  
                 new_box = merge_boxes(text_box_1, text_box_2)            
@@ -73,8 +75,12 @@ def merge_algo(texts, texts_boxes):
 
 
 def deeptr(text):
-    br = browser.find_element('xpath','//textarea[@dl-test="translator-source-input"]')
-    br.clear()
+    br = browser.find_element('xpath','//d-textarea[@dl-test="translator-source-input"]')
+    try:
+        browser.find_element('xpath','//button[@dl-test="translator-source-clear-button"]').click()
+    except:
+        print('almost clear')
+    #br.clear()
     pyperclip.copy(text)
     br.send_keys(Keys.CONTROL + "v")
     c = text.count('\n')
@@ -89,7 +95,7 @@ def deeptr(text):
             return res.split('\n')#replace('\n', '')
         print(res.count('\n'))
         print(c)
-def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0):
+def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translator='deepl'):
     global next_img 
     global clear_img
     root = tkinter.Tk()
@@ -102,6 +108,7 @@ def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0):
     label.master.wm_attributes("-topmost", True)
     label.master.wm_attributes("-disabled", True)
     label.master.wm_attributes("-transparentcolor", "white")
+    trans = Translator(to_lang="ru")
 
     hWindow = pywintypes.HANDLE(int(label.master.frame(), 16))
 
@@ -172,7 +179,10 @@ def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0):
                 tran_str +=r + ' \n '
             print('time 5=',time.time()-t3)
             t4 = time.time()
-            tr_res = deeptr(tran_str)
+            if translator=='deepl':
+                tr_res = deeptr(tran_str)
+            else:
+                tr_res = trans.translate(tran_str).split('\n')
             print('time 6=',time.time()-t4)
             t5 = time.time()
             while len(tr_res) < len(texts_copied):
@@ -198,17 +208,33 @@ def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0):
                 x1=texts_boxes_copied[c][2]
                 if len(i)>0:
                     sq = ((y1-y0)*(x1-x0))/len(i)
-                    fs = int((sq/0.8)**(1/2))-1
-                    font = ImageFont.truetype('arial.ttf', fs)
+                    
+                    try:
+                        fs = int((sq/0.8)**(1/2))-1
+                    except:
+                        print(sq)
+                        fs = 10
+                    print('----')
+                    print(fs)
+                    if fs<=0:
+                        fs=10
+                    print(fs)
+                    font = ImageFont.truetype('arial.ttf', int(fs))
                     len_t = (x1-x0)/(fs*0.65)
-                    texts = re.findall('(.{%s}|.+$)'%int(len_t), i)
+                    texts = re.findall('(.{%s}|.+$)'%int(len_t-1), i)
+                    try:
+                        for i in range(len(texts)-1):
+                            if texts[i][-1]!=' ' and texts[i+1][0]!=' ':
+                                texts[i]+='-'
+                    except:
+                        print('error wrap')
                     draw.rectangle(tuple(texts_boxes_copied[c]), fill="grey")
                     add = 0
                     for te in texts:
                         draw.text((x0+padding_scale*fs/4, y0+add+padding_scale*fs/4), te, fill=(0, 0, 0), font = font )
                         add+=fs
             print(img3)
-            img3=img3.resize((int(img3.width/2), int(img3.height/2)))
+            img3=img3.resize((int(img3.width*scale/2), int(img3.height*scale/2)))
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
             next_img=0
@@ -219,11 +245,11 @@ def change(e):
     global a
     global next_img
     global clear_img
-    if e.Key == 'Lcontrol':
+    if e.Key == 'Oem_3':
         a =1
     elif e.Key == 'P':
         next_img =1
-    elif e.Key=='C':
+    elif e.Key=='Delete':
         sys.exit('--')
     elif e.Key == 'Return':
         clear_img=1
