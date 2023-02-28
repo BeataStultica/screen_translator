@@ -11,16 +11,26 @@ from selenium.webdriver.common.keys import Keys
 import pyperclip
 import requests
 from translate import Translator
-
+import json
+with open('translate_log.json') as f:
+    content = f.read()
+    log = json.loads(content)
+    log_key = list(log)
+    if len(log_key)>300000:
+        log_key = log_key[:len(log_key)-250000]
+        for i in log_key:
+            log.pop(i)
 a = 0
+full_screen = 0
 next_img = 0
-coordinate = [1, 1, 1, 1]
+coordinate = [1, 1, 20, 20]
+coordinate_copy = None
 clear_img=0
 chrome_options = webdriver.ChromeOptions()
 #chrome_options.add_argument('user-data-dir=C:\\Users\\dimon\\AppData\\Local\\Google\\Chrome\\User Data')
 browser = webdriver.Chrome(chrome_options=chrome_options) 
 browser.get('https://www.deepl.com/translator#en/ru/')
-
+history = True
 dist_limit = 100
 
 
@@ -84,6 +94,9 @@ def deeptr(text):
     pyperclip.copy(text)
     br.send_keys(Keys.CONTROL + "v")
     c = text.count('\n')
+    if c == 1:
+        c+=1
+        text+='i\n'
     count = 0
     while True:
 
@@ -92,12 +105,18 @@ def deeptr(text):
         res = b.get_attribute('innerHTML')
         if res.count('\n') >= c:
             pyperclip.copy(text)
+            # print(res)
             return res.split('\n')#replace('\n', '')
         print(res.count('\n'))
         print(c)
 def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translator='deepl'):
     global next_img 
     global clear_img
+    global coordinate
+    global coordinate_copy
+    global full_screen
+    global log
+    global history
     root = tkinter.Tk()
     img = Image.new('RGBA', (100, 100), (255, 0, 0, 0))
     test = ImageTk.PhotoImage(img)
@@ -118,7 +137,7 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
 
     label.pack()
     if server_mode is False:
-        ocr = PaddleOCR(use_angle_cls=True, lang='en', gpu_enable=True, gpu_mem=4000)
+        ocr = PaddleOCR(use_angle_cls=True, lang='en', gpu_enable=True, gpu_mem=3000)
     while True:
         if clear_img:
             print('clear')
@@ -129,18 +148,24 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             
             label.configure(image=test)
             label.update()
-            time.sleep(0.5)
+            time.sleep(0.1)
+            t = time.time()
+            if full_screen:
+                pic1 = ImageGrab.grab()
+                coordinate_copy=coordinate[:]
+                coordinate=[1,1,2,2]
+            else:
+                pic1 = ImageGrab.grab(coordinate)
+            print('time screenshot=',time.time()-t)
             width, height = coordinate[0], coordinate[1]
             label.master.geometry("+"+str(int(width/2))+"+" +str(int(height/2)))
-            t = time.time()
-            pic1 = ImageGrab.grab(coordinate)
-            print('time 1=',time.time()-t)
+
             t1 = time.time()
             pic = pic1.resize((pic1.width//scale, pic1.height//scale))
-            print('time 2=',time.time()-t1)
+            print('time resize=',time.time()-t1)
             
             pic.save('temp.png', 'PNG')
-            print('time 3=',time.time()-t1)
+            print('time save=',time.time()-t1)
             t2 = time.time()
             if server_mode:
                 url = 'http://9727-34-66-21-36.ngrok.io/img'
@@ -150,10 +175,10 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                 
             else:
                 res = ocr.ocr('temp.png', cls=True)
-            print('time 4=',time.time()-t2)
+            print('time recognize=',time.time()-t2)
             t3 = time.time()
-            print(res)
-            print(len(res))
+            # print(res)
+            # print(len(res))
             img3 = Image.new('RGBA', (pic.width, pic.height), (255, 0, 0, 0))
             draw = ImageDraw.Draw(img3)
             font = ImageFont.truetype('arial.ttf', fontsize)
@@ -162,50 +187,77 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             texts_boxes_copied = []
             for c, i in enumerate(res):
                 texts_copied.append(i[1][0])
-                print('+++++++++++++')
-                print(i[1][0])
-                print('+++++++++++++')
-                print(i[0][0])
+                # print('+++++++++++++')
+                # print(i[1][0])
+                # print('+++++++++++++')
+                # print(i[0][0])
                 texts_boxes_copied.append([i[0][0][0], i[0][0][1], i[0][2][0], i[0][2][1]])
             need_to_merge = True
-            print(texts_copied)
+            # print(texts_copied)
 
             while need_to_merge:
                 need_to_merge, texts_copied, texts_boxes_copied = merge_algo(texts_copied, texts_boxes_copied)
-            print(len(texts_copied))
-            print(len(texts_boxes_copied))
+            # print(len(texts_copied))
+            # print(len(texts_boxes_copied))
+
             tran_str = ''
-            for r in texts_copied:
-                tran_str +=r + ' \n '
-            print('time 5=',time.time()-t3)
+            rep_tran = ['+']*len(texts_copied)
+            tr_str = []
+            for r in range(len(texts_copied)):
+                if texts_copied[r] in log and history:
+                    rep_tran[r]=log[texts_copied[r]]
+                else:
+                    tran_str +=texts_copied[r] + ' \n '
+                    tr_str.append(texts_copied[r])
+            # print('\n')
+            # print(texts_copied)
+            # print(rep_tran)
+            # # print(list(log)[-10:])
+            # print('\n')
+            print('time merge=',time.time()-t3)
             t4 = time.time()
-            if translator=='deepl':
+            if translator=='deepl' and len(tran_str)>0:
                 tr_res = deeptr(tran_str)
-            else:
+            elif len(tran_str)>0:
                 tr_res = trans.translate(tran_str).split('\n')
-            print('time 6=',time.time()-t4)
+            for i in range(len(tr_str)):
+                log[tr_str[i]] = tr_res[i] 
+            if history:
+                for i in tr_res:
+                    for r in range(len(rep_tran)):
+                        if rep_tran[r] =='+':
+                            rep_tran[r] = i
+                            break
+                tr_res=rep_tran
+
+            # print(log)
+            print('time translate=',time.time()-t4)
             t5 = time.time()
             while len(tr_res) < len(texts_copied):
                 tr_res.append('')
-            #print(tr_res)
-            tr_res=tr_res[:-1]
+            # print(tr_res)
+            # tr_res=tr_res[:-1]
             #print(tr_res)
             #print(texts_boxes_copied)
             #print(len(tr_res))
             #print(len(texts_boxes_copied))
             check_len = min(len(tr_res), len(texts_boxes_copied))
+            # if check_len==0:
+            #     check_len=1
             tr_res.append('')
             texts_boxes_copied.append('')
             tr_res = tr_res[:check_len]
             texts_boxes_copied = texts_boxes_copied[:check_len]
-            #print(tr_res)
-            #print(texts_boxes_copied)
+
             for c, i in enumerate(tr_res):
                 i = i.strip()
                 y0=texts_boxes_copied[c][1]
                 y1=texts_boxes_copied[c][3]
                 x0=texts_boxes_copied[c][0]
                 x1=texts_boxes_copied[c][2]
+                if y1-y0 <=10:
+                    y1+=20
+                    texts_boxes_copied[c][3]+=20
                 if len(i)>0:
                     sq = ((y1-y0)*(x1-x0))/len(i)
                     
@@ -214,11 +266,11 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                     except:
                         print(sq)
                         fs = 10
-                    print('----')
-                    print(fs)
+                    # print('----')
+                    # print(fs)
                     if fs<=0:
                         fs=10
-                    print(fs)
+                    # print(fs)
                     font = ImageFont.truetype('arial.ttf', int(fs))
                     len_t = (x1-x0)/(fs*0.65)
                     texts = re.findall('(.{%s}|.+$)'%int(len_t-1), i)
@@ -233,26 +285,40 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                     for te in texts:
                         draw.text((x0+padding_scale*fs/4, y0+add+padding_scale*fs/4), te, fill=(0, 0, 0), font = font )
                         add+=fs
-            print(img3)
             img3=img3.resize((int(img3.width*scale/2), int(img3.height*scale/2)))
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
             next_img=0
-            print('time 7=',time.time()-t5)
+            print('time show=',time.time()-t5)
+            if full_screen:
+                coordinate=coordinate_copy[:]
+                full_screen=0
         label.update()
 import sys
 def change(e):
     global a
     global next_img
     global clear_img
+    global full_screen
+    global dist_limit
     if e.Key == 'Oem_3':
         a =1
     elif e.Key == 'P':
         next_img =1
+    elif e.Key == 'O':
+        next_img =1
+        full_screen=1
     elif e.Key=='Delete':
+        with open('translate_log.json', 'w') as f:
+            f.write(json.dumps(log))
         sys.exit('--')
     elif e.Key == 'Return':
         clear_img=1
+    elif e.Key == 'I':
+        dist_limit-=20
+    elif e.Key == 'U':
+        dist_limit+=20
+    
     else:
         print(e.Key)
     return 1
@@ -278,4 +344,4 @@ if __name__ == '__main__':
     thread2 = threading.Thread(target=output)
     thread1.start()
     thread2.start()
-    
+
