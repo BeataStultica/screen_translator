@@ -12,6 +12,7 @@ import pyperclip
 import requests
 from translate import Translator
 import json
+import numpy as np
 with open('translate_log.json') as f:
     content = f.read()
     log = json.loads(content)
@@ -92,7 +93,14 @@ def deeptr(text):
         print('almost clear')
     #br.clear()
     pyperclip.copy(text)
-    br.send_keys(Keys.CONTROL + "v")
+    #time.sleep(0.1)
+    trans = True
+    while trans:
+        try:
+            br.send_keys(Keys.CONTROL + "v")
+            trans=False
+        except:
+            print('ctrl+v error')
     c = text.count('\n')
     if c == 1:
         c+=1
@@ -144,6 +152,8 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             label.configure(image=test)
             label.update()
             clear_img=0
+            time.sleep(0.4)
+            next_img=1
         if next_img:
             
             label.configure(image=test)
@@ -164,8 +174,8 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             pic = pic1.resize((pic1.width//scale, pic1.height//scale))
             print('time resize=',time.time()-t1)
             
-            pic.save('temp.png', 'PNG')
-            print('time save=',time.time()-t1)
+            #pic.save('temp.png', 'PNG')
+            #print('time save=',time.time()-t1)
             t2 = time.time()
             if server_mode:
                 url = 'http://9727-34-66-21-36.ngrok.io/img'
@@ -174,7 +184,7 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                 res = r.json()['res']
                 
             else:
-                res = ocr.ocr('temp.png', cls=True)
+                res = ocr.ocr(np.array(pic), cls=True)
             print('time recognize=',time.time()-t2)
             t3 = time.time()
             # print(res)
@@ -220,6 +230,8 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                 tr_res = deeptr(tran_str)
             elif len(tran_str)>0:
                 tr_res = trans.translate(tran_str).split('\n')
+            else:
+                tr_res = []
             for i in range(len(tr_str)):
                 log[tr_str[i]] = tr_res[i] 
             if history:
@@ -344,4 +356,3 @@ if __name__ == '__main__':
     thread2 = threading.Thread(target=output)
     thread1.start()
     thread2.start()
-
