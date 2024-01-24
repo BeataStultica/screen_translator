@@ -13,6 +13,7 @@ import requests
 from translate import Translator
 import json
 import numpy as np
+from webdriver_manager.chrome import ChromeDriverManager
 with open('translate_log.json') as f:
     content = f.read()
     log = json.loads(content)
@@ -29,12 +30,17 @@ coordinate_copy = None
 clear_img=0
 chrome_options = webdriver.ChromeOptions()
 #chrome_options.add_argument('user-data-dir=C:\\Users\\dimon\\AppData\\Local\\Google\\Chrome\\User Data')
-browser = webdriver.Chrome(chrome_options=chrome_options) 
+# browser = webdriver.Chrome(chrome_options=chrome_options) 
+browser = webdriver.Chrome(ChromeDriverManager().install())
 browser.get('https://www.deepl.com/translator#en/ru/')
 history = True
 dist_limit = 100
-
-
+stop_trans=False
+bw_mod = True
+threshold = 200
+lang = 'en'
+ocr = None
+automatic = {'mode':False, 'freq':2}
 #Generate two text boxes a larger one that covers them
 def merge_boxes(box1, box2):
     return [min(box1[0], box2[0]), 
@@ -57,14 +63,13 @@ def calc_sim(text, obj):
     #print('Center_x dist ',y_abs)
     dist = x_dist + y_dist
     return dist#x_dist, y_dist, y_abs
-
+   
 #Principal algorithm for merge text 
 def merge_algo(texts, texts_boxes):
     for i, (text_1, text_box_1) in enumerate(zip(texts, texts_boxes)):
         for j, (text_2, text_box_2) in enumerate(zip(texts, texts_boxes)):
             if j <= i:
-                continue
-            # Create a new box if a distances is less than disctance limit defined 
+                continue            # Create a new box if a distances is less than disctance limit defined 
             #if calc_sim(text_box_1, text_box_2)[0]+calc_sim(text_box_1, text_box_2)[1] < dist_limit and calc_sim(text_box_1, text_box_2)[2]:
             if calc_sim(text_box_1, text_box_2) < dist_limit:
             # Create a new box  
@@ -83,12 +88,33 @@ def merge_algo(texts, texts_boxes):
 
     return False, texts, texts_boxes
 
+from bs4 import BeautifulSoup
 
+def get_text_between_tags(html):
+    soup = BeautifulSoup(html, 'html.parser')
+
+    def get_text_from_element(element):
+        if element.string:
+            return element.string.strip()
+        else:
+            result = ''
+            for child in element.children:
+                if child.name and child.name != 'script':  # Ігноруємо скрипти
+                    child_text = get_text_from_element(child)
+                    if child_text:
+                        result += child_text + ' '
+            return result.strip()
+
+    text = get_text_from_element(soup)
+    return text
+
+
+from difflib import SequenceMatcher
 
 def deeptr(text):
-    br = browser.find_element('xpath','//d-textarea[@dl-test="translator-source-input"]')
+    br = browser.find_element('xpath','//d-textarea[@data-testid="translator-source-input"]')
     try:
-        browser.find_element('xpath','//button[@dl-test="translator-source-clear-button"]').click()
+        browser.find_element('xpath','//button[@data-testid="translator-source-clear-button"]').click()
     except:
         print('almost clear')
     #br.clear()
@@ -102,22 +128,48 @@ def deeptr(text):
         except:
             print('ctrl+v error')
     c = text.count('\n')
-    if c == 1:
-        c+=1
-        text+='i\n'
+    print(text)
+    print(c)
+    # if c == 1:
+    #     c+=1
+    #     text+='\n'
     count = 0
+    stop = 30
     while True:
-
+        res = ''
         time.sleep(0.1)
-        b = browser.find_element('id', 'target-dummydiv')
-        res = b.get_attribute('innerHTML')
+        #html = browser.find_element('xpath','//d-textarea[@data-testid="translator-target-input"]').get_attribute('innerHTML')
+        try:
+            browser.find_element('xpath','//button[@data-testid="translator-target-toolbar-copy"]').click()
+        except:
+            print('no copy button')
+            stop -=1
+            if not stop:
+                return res.split('\n')
+            continue
+        res = pyperclip.paste()
+        #print(html)
+        #print('\n')
+        #res = get_text_between_tags(html)
+        print(res)
+        #b = browser.find_element('id', 'target-dummydiv')
+        #res = b.get_attribute('innerHTML')
         if res.count('\n') >= c:
-            pyperclip.copy(text)
+            #pyperclip.copy(text)
             # print(res)
-            return res.split('\n')#replace('\n', '')
+            if SequenceMatcher(None, text, res).ratio()<0.8:
+                return res.split('\n')#replace('\n', '')
+            else:
+                if stop <=0:
+                    return res.split('\n')
+                stop = 0
+                continue
         print(res.count('\n'))
         print(c)
-def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translator='deepl'):
+        stop -=1
+        if stop<=0:
+            return res.split('\n')
+def output(scale=1, fontsize = 15, server_mode=False, padding_scale=0, translator='deepl--'):
     global next_img 
     global clear_img
     global coordinate
@@ -125,6 +177,11 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
     global full_screen
     global log
     global history
+    global stop_trans
+    global threshold
+    global bw_mod
+    global lang
+    global ocr
     root = tkinter.Tk()
     img = Image.new('RGBA', (100, 100), (255, 0, 0, 0))
     test = ImageTk.PhotoImage(img)
@@ -135,7 +192,6 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
     label.master.wm_attributes("-topmost", True)
     label.master.wm_attributes("-disabled", True)
     label.master.wm_attributes("-transparentcolor", "white")
-    trans = Translator(to_lang="ru")
 
     hWindow = pywintypes.HANDLE(int(label.master.frame(), 16))
 
@@ -145,47 +201,65 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
 
     label.pack()
     if server_mode is False:
-        ocr = PaddleOCR(use_angle_cls=True, lang='en', gpu_enable=True, gpu_mem=3000)
+        ocr = PaddleOCR(use_angle_cls=True, lang=lang, gpu_enable=True, gpu_mem=4000, det_db_unclip_ratio=2.5, det_db_box_thresh=0.2) #det_db_unclip_ratio=2.5, det_db_box_thresh=0.2)#use_dilation=True)#, det_db_unclip_ratio=1, use_space_char=True)
     while True:
-        if clear_img:
-            print('clear')
+        if stop_trans:
             label.configure(image=test)
             label.update()
             clear_img=0
-            time.sleep(0.4)
+            next_img=0
+            stop_trans=False
+        if clear_img:
+            label.configure(image=test)
+            label.update()
+            clear_img=0
+            #time.sleep(0.4)
             next_img=1
         if next_img:
             
-            label.configure(image=test)
+            #label.configure(image=test)
             label.update()
             time.sleep(0.1)
-            t = time.time()
-            if full_screen:
-                pic1 = ImageGrab.grab()
-                coordinate_copy=coordinate[:]
-                coordinate=[1,1,2,2]
-            else:
-                pic1 = ImageGrab.grab(coordinate)
-            print('time screenshot=',time.time()-t)
-            width, height = coordinate[0], coordinate[1]
-            label.master.geometry("+"+str(int(width/2))+"+" +str(int(height/2)))
-
-            t1 = time.time()
-            pic = pic1.resize((pic1.width//scale, pic1.height//scale))
-            print('time resize=',time.time()-t1)
             
-            #pic.save('temp.png', 'PNG')
-            #print('time save=',time.time()-t1)
-            t2 = time.time()
-            if server_mode:
-                url = 'http://9727-34-66-21-36.ngrok.io/img'
-                files={'file':open('temp.png','rb')}
-                r = requests.post(url, files=files)
-                res = r.json()['res']
+            res = []
+            while not res and not stop_trans:
+                time.sleep(0.3)
+                t = time.time()
+                if full_screen:
+                    pic1 = ImageGrab.grab()
+                    coordinate_copy=coordinate[:]
+                    coordinate=[1,1,2,2]
+                else:
+                    try:
+                        pic1 = ImageGrab.grab(coordinate)
+                    except ValueError:
+                        print('Coordinate error')
+                print('time screenshot=',time.time()-t)
+                width, height = coordinate[0], coordinate[1]
+                label.master.geometry("+"+str(int(width/2))+"+" +str(int(height/2)))
+
+                t1 = time.time()
+                pic = pic1.resize((pic1.width//scale, pic1.height//scale))
+                print('time resize=',time.time()-t1)
                 
-            else:
-                res = ocr.ocr(np.array(pic), cls=True)
-            print('time recognize=',time.time()-t2)
+                #pic.save('temp.png', 'PNG')
+                #print('time save=',time.time()-t1)
+                t2 = time.time()
+                if server_mode:
+                    url = 'http://9727-34-66-21-36.ngrok.io/img'
+                    files={'file':open('temp.png','rb')}
+                    r = requests.post(url, files=files)
+                    res = r.json()['res']
+                    
+                else:
+                    if bw_mod:
+                        gpic = pic.convert('L')
+                        bw = gpic.point(lambda x: 0 if x < threshold else 255, '1')
+                        pic = bw.convert('RGB')
+                        #pic.save('temp.png', 'PNG')
+                    res = ocr.ocr(np.array(pic), cls=True)
+                print('time recognize=',time.time()-t2)
+                print(res)
             t3 = time.time()
             # print(res)
             # print(len(res))
@@ -228,12 +302,28 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             t4 = time.time()
             if translator=='deepl' and len(tran_str)>0:
                 tr_res = deeptr(tran_str)
-            elif len(tran_str)>0:
-                tr_res = trans.translate(tran_str).split('\n')
+            elif len(tran_str)>0: # google translate
+                l = lang
+                if lang == "japan":
+                    l = "ja"
+                
+                url = f"https://translate.google.com/m?sl={l}&tl=ru&q={tran_str}"
+                headers = {"User-Agent": "Mozilla/5.0 Screen Translator"}
+                t = time.time()
+                response = requests.get(url, headers=headers)
+                if response.status_code == 200:
+                    print(tran_str)
+                    start = response.text.find("result-container\">") + 18
+                    end = response.text.find("<", start)
+                    tr_res = response.text[start:end].split('\n')
+                    print(tr_res)
             else:
                 tr_res = []
-            for i in range(len(tr_str)):
-                log[tr_str[i]] = tr_res[i] 
+            try:
+                for i in range(len(tr_str)):
+                    log[tr_str[i]] = tr_res[i] 
+            except:
+                print('log error')
             if history:
                 for i in tr_res:
                     for r in range(len(rep_tran)):
@@ -292,7 +382,7 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
                                 texts[i]+='-'
                     except:
                         print('error wrap')
-                    draw.rectangle(tuple(texts_boxes_copied[c]), fill="grey")
+                    draw.rectangle(tuple(texts_boxes_copied[c]), fill=(128, 128, 128, 128))#fill="grey")
                     add = 0
                     for te in texts:
                         draw.text((x0+padding_scale*fs/4, y0+add+padding_scale*fs/4), te, fill=(0, 0, 0), font = font )
@@ -300,7 +390,8 @@ def output(scale=2, fontsize = 15, server_mode=False, padding_scale=0, translato
             img3=img3.resize((int(img3.width*scale/2), int(img3.height*scale/2)))
             img3 =  ImageTk.PhotoImage(img3)
             label.configure(image=img3)
-            next_img=0
+            if not automatic['mode']:
+                next_img=0
             print('time show=',time.time()-t5)
             if full_screen:
                 coordinate=coordinate_copy[:]
@@ -313,6 +404,11 @@ def change(e):
     global clear_img
     global full_screen
     global dist_limit
+    global stop_trans
+    global threshold
+    global bw_mod
+    global lang
+    global ocr
     if e.Key == 'Oem_3':
         a =1
     elif e.Key == 'P':
@@ -323,6 +419,7 @@ def change(e):
     elif e.Key=='Delete':
         with open('translate_log.json', 'w') as f:
             f.write(json.dumps(log))
+        browser.quit()
         sys.exit('--')
     elif e.Key == 'Return':
         clear_img=1
@@ -330,7 +427,27 @@ def change(e):
         dist_limit-=20
     elif e.Key == 'U':
         dist_limit+=20
-    
+    elif e.Key == 'L':
+        stop_trans = True
+    elif e.Key == 'A':
+        automatic['mode'] = not automatic['mode']
+    elif e.Key == 'K':
+        bw_mod = not bw_mod
+        print(bw_mod)
+    elif e.Key == 'M':
+        threshold -=10
+        print(threshold)
+    elif e.Key == 'N':
+        threshold +=10
+        print(threshold)
+    elif e.Key == 'Z':
+        if lang == "en":
+            lang = "japan"
+        else:
+            lang="en"
+        ocr = PaddleOCR(use_angle_cls=True, lang=lang, gpu_enable=True, gpu_mem=4000, det_db_unclip_ratio=2.5)#use_dilation=True)#, det_db_unclip_ratio=1, use_space_char=True)
+
+        print(lang)
     else:
         print(e.Key)
     return 1
